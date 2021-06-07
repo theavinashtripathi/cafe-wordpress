@@ -170,6 +170,7 @@ var AstraSitesAjaxQueue = (function () {
 
 	AstraSitesAdmin = {
 
+		import_source: 'legacy',
 		wpcontent_left_margin: $('#wpcontent').css('margin-left'),
 		header: $('#astra-sites-menu-page .nav-tab-wrapper'),
 		header_offset: 0,
@@ -237,6 +238,8 @@ var AstraSitesAjaxQueue = (function () {
 		import_end_time: '',
 		search_terms: [],
 		page_settings_flag: true,
+		delay_in_request: false,
+		delay_value : 10000, // 10 seconds.
 
 		init: function () {
 			this._show_default_page_builder_sites();
@@ -482,6 +485,9 @@ var AstraSitesAjaxQueue = (function () {
 			$(document).on('astra-sites-import-options-done', AstraSitesAdmin._importWidgets);
 			$(document).on('astra-sites-import-widgets-done', AstraSitesAdmin._importEnd);
 
+			// Try again.
+			$(document).on('click', '.ast-try-again', AstraSitesAdmin.tryAgain );
+
 			$(document).on('click', '.astra-sites__category-filter-anchor', AstraSitesAdmin._toggleFilter);
 
 			// Tooltip.
@@ -525,6 +531,16 @@ var AstraSitesAjaxQueue = (function () {
 			$(document).on('astra-sites-added-pages', AstraSitesAdmin._stick_header);
 			$(document).on('astra-sites-added-pages', AstraSitesAdmin._manage_wp_collapse_menu);
 
+		},
+
+		/**
+		 * Try again for import
+		 * @param {*} event 
+		 */
+		tryAgain: function( event ) {
+			event.preventDefault();
+			AstraSitesAdmin.delay_in_request = true;
+			$( '.site-import-site-button' ).trigger( 'click' );
 		},
 
 		/**
@@ -2067,11 +2083,11 @@ var AstraSitesAjaxQueue = (function () {
 			if ($(this).hasClass('updating-message')) {
 				return;
 			}
-			if ( AstraSitesAdmin.subscribe_skiped || AstraSitesAdmin.subscription_form_submitted == 'yes') {
+			if (AstraSitesAdmin.subscribe_skiped || AstraSitesAdmin.subscription_form_submitted == 'yes') {
 				$('.user-building-for-title').hide();
 				$('.astra-sites-advanced-options').show();
 				$('.astra-sites-advanced-options-heading').hide();
-				$( '#astra-sites-subscription-form-one' ).hide();
+				$('#astra-sites-subscription-form-one').hide();
 			}
 			if (false === AstraSitesAdmin.subscribe_skiped && $('.subscription-enabled').length && AstraSitesAdmin.subscription_form_submitted !== 'yes') {
 				AstraSitesAdmin._validate_field($('.subscription-input-wp-user-type'));
@@ -2087,7 +2103,7 @@ var AstraSitesAjaxQueue = (function () {
 
 			$('.install-theme-info').hide();
 
-			if ( false === AstraSitesAdmin.subscribe_skiped && $('.subscription-enabled').length && AstraSitesAdmin.subscription_form_submitted !== 'yes') {
+			if (false === AstraSitesAdmin.subscribe_skiped && $('.subscription-enabled').length && AstraSitesAdmin.subscription_form_submitted !== 'yes') {
 				$('.subscription-popup').show();
 				$('.astra-sites-result-preview .default').hide();
 			} else {
@@ -2695,17 +2711,28 @@ var AstraSitesAjaxQueue = (function () {
 										break;
 
 									case 'complete':
-										evtSource.close();
+										if ( false == data.error ) {
+											evtSource.close();
 
-										$('.current-importing-status-description').hide();
-										$('.astra-demo-import').removeAttr('data-xml-processing');
+											$('.current-importing-status-description').hide();
+											$('.astra-demo-import').removeAttr('data-xml-processing');
 
-										document.getElementsByClassName("astra-site-import-process").value = '100';
+											document.getElementsByClassName("astra-site-import-process").value = '100';
 
-										$('.astra-site-import-process-wrap').hide();
-										console.groupEnd();
+											$('.astra-site-import-process-wrap').hide();
+											console.groupEnd();
 
-										$(document).trigger('astra-sites-import-xml-done');
+											$(document).trigger('astra-sites-import-xml-done');
+										} else {
+											evtSource.close();
+											AstraSitesAdmin._importFailMessage(
+												astraSitesVars.xml_import_interrupted_error,
+												'Import Process Interrupted!',
+												'',
+												'<p>' + astraSitesVars.xml_import_interrupted_primary + '</p>',
+												'<p>' + astraSitesVars.xml_import_interrupted_secondary + '</p>'
+											);
+										}
 
 										break;
 								}
@@ -2917,7 +2944,7 @@ var AstraSitesAjaxQueue = (function () {
 		 *
 		 * @param  {string} data Error message.
 		 */
-		_importFailMessage: function (message, heading, jqXHR, topContent) {
+		_importFailMessage: function (message, heading, jqXHR, topContent, bottomContent) {
 
 			heading = heading || 'The import process interrupted';
 
@@ -2935,6 +2962,8 @@ var AstraSitesAjaxQueue = (function () {
 				if (message) {
 					output += '<div class="current-importing-status">Error: ' + message + '</div>';
 				}
+
+				output += bottomContent || '';
 			}
 
 			$('.astra-sites-import-content').html(output);
@@ -3231,6 +3260,23 @@ var AstraSitesAjaxQueue = (function () {
 				return;
 			}
 
+			var delay = 1;
+			var retry_str = '';
+			if ( AstraSitesAdmin.delay_in_request ) {
+				delay = AstraSitesAdmin.delay_value;
+				retry_str = '<p class="ast-retry-text">Retrying in <span class="ast-retry-sec">10</span>...</p>';
+
+				var timeleft = AstraSitesAdmin.delay_value / 1000;
+				var countdown = setInterval(function() {
+					timeleft -= 1;
+					$(".ast-retry-sec").html( timeleft );
+					if ( timeleft <= 0 ) {
+						clearInterval(countdown);
+						$(".ast-retry-sec").html( "0" );
+					}
+				}, 1000);
+			}
+
 			$('.astra-sites-result-preview').addClass('import-site').removeClass('import-page');
 
 			$('.astra-sites-result-preview')
@@ -3240,7 +3286,7 @@ var AstraSitesAjaxQueue = (function () {
 
 			var template = wp.template('astra-sites-result-preview');
 			$('.astra-sites-result-preview').html(template('astra-sites')).addClass('preparing');
-			$('.astra-sites-import-content').append('<div class="astra-loading-wrap"><div class="astra-loading-icon"></div></div>');
+			$('.astra-sites-import-content').append('<div class="astra-loading-wrap"><div class="astra-loading-icon"></div></div>'+retry_str);
 
 			// .attr('data-slug', 'astra-sites');
 			AstraSitesAdmin.action_slug = 'astra-sites';
@@ -3273,24 +3319,27 @@ var AstraSitesAjaxQueue = (function () {
 					slug: astraSitesVars.cpt_slug + '/' + site_id + '?' + decodeURIComponent($.param(AstraSitesAdmin._api_params)),
 				};
 
-				$.ajax({
-					url: astraSitesVars.ajaxurl,
-					type: 'POST',
-					data: {
-						action: 'astra-sites-api-request',
-						url: astraSitesVars.cpt_slug + '/' + site_id + '?' + decodeURIComponent($.param(AstraSitesAdmin._api_params)),
-					},
-					beforeSend: function () {
-						console.groupCollapsed('Requesting API');
-					}
-				})
+				setTimeout(function() {
+					$.ajax({
+						url: astraSitesVars.ajaxurl,
+						type: 'POST',
+						data: {
+							action: 'astra-sites-api-request',
+							url: astraSitesVars.cpt_slug + '/' + site_id + '?' + decodeURIComponent($.param(AstraSitesAdmin._api_params)),
+						},
+						beforeSend: function () {
+							console.groupCollapsed('Requesting API');
+						}
+					})
 					.fail(function (jqXHR) {
 						AstraSitesAdmin._log(jqXHR);
-						AstraSitesAdmin._importFailMessage(jqXHR.status + ' ' + jqXHR.statusText, '', jqXHR);
+						AstraSitesAdmin._importFailMessage( jqXHR.status + ' ' + jqXHR.statusText, '', jqXHR, astraSitesVars.ajax_request_failed_primary, astraSitesVars.ajax_request_failed_secondary );
 						console.groupEnd();
+						AstraSitesAdmin.delay_in_request = false;
 					})
 					.done(function (response) {
 						console.log('Template API Response:');
+						AstraSitesAdmin.delay_in_request = false;
 						AstraSitesAdmin._log(response);
 						console.groupEnd();
 						if (response.success) {
@@ -3300,15 +3349,52 @@ var AstraSitesAjaxQueue = (function () {
 
 							AstraSitesAdmin.process_site_data(AstraSitesAdmin.templateData);
 						} else {
-							$('.astra-sites-result-preview .heading > h3').text('Import Process Interrupted');
-							$('.astra-sites-import-content').find('.astra-loading-wrap').remove();
-							$('.astra-sites-result-preview').removeClass('preparing');
-							$('.astra-sites-import-content').html(wp.template('astra-sites-request-failed'));
-							$('.astra-demo-import').removeClass('updating-message installing button-primary').addClass('disabled').text('Import Failed!');
+							AstraSitesAdmin.handle_error( response, site_id );
 						}
 					});
+						
+				}, delay);
+
 			}
 
+		},
+
+		handle_error: function( response, id ) {
+			var template = 'astra-sites-request-failed-user';
+			var template_data = {
+				'primary' : '',
+				'secondary' : '',
+				'error' : response.data,
+				'id' : id
+			};
+			if ( undefined !== response.data.code ) {
+				var code = response.data.code.toString();
+				switch( code ) {
+					case '401':
+					case '404':
+					case '500':
+						template_data.primary = astraSitesVars.server_import_primary_error;
+						break;
+
+					case 'WP_Error':
+						template_data.primary = astraSitesVars.client_import_primary_error;
+						break;
+
+					case 'Cloudflare':
+						template_data.primary = astraSitesVars.cloudflare_import_primary_error;
+						break;
+
+					default:
+						template = 'astra-sites-request-failed';
+						break;
+				}
+			}
+			let err_template = wp.template( template );
+			$('.astra-sites-result-preview .heading > h3').text('Import Process Interrupted');
+			$('.astra-sites-import-content').find('.astra-loading-wrap').remove();
+			$('.astra-sites-result-preview').removeClass('preparing');
+			$('.astra-sites-import-content').html( err_template( template_data ) );
+			$('.astra-demo-import').removeClass('updating-message installing button-primary').addClass('disabled').text('Import Failed!');
 		},
 
 		show_popup: function (heading, content, actions, classes) {
@@ -3343,13 +3429,30 @@ var AstraSitesAjaxQueue = (function () {
 			var page_id = AstraSitesAdmin._get_id($('#single-pages').find('.current_page').attr('data-page-id')) || '';
 			var site_id = AstraSitesAdmin._get_id($('#site-pages').attr('data-site-id')) || '';
 
+			var delay = 1;
+			var retry_str = '';
+			if ( AstraSitesAdmin.delay_in_request ) {
+				delay = AstraSitesAdmin.delay_value;
+				retry_str = '<p class="ast-retry-text">Retrying in <span class="ast-retry-sec">10</span>...</p>';
+
+				var timeleft = AstraSitesAdmin.delay_value / 1000;
+				var countdown = setInterval(function() {
+					timeleft -= 1;
+					$(".ast-retry-sec").html( timeleft );
+					if ( timeleft <= 0 ) {
+						clearInterval(countdown);
+						$(".ast-retry-sec").html( "0" );
+					}
+				}, 1000);
+			}
+
 			$('.astra-sites-result-preview')
 				.removeClass('astra-sites-subscription-popup astra-sites-activate-license astra-sites-get-agency-bundle astra-sites-site-import-popup astra-sites-page-import-popup')
 				.addClass('preview-page-from-search-result')
 				.show();
 
 			$('.astra-sites-result-preview').html(wp.template('astra-sites-result-preview')).addClass('preparing');
-			$('.astra-sites-import-content').append('<div class="astra-loading-wrap"><div class="astra-loading-icon"></div></div>');
+			$('.astra-sites-import-content').append('<div class="astra-loading-wrap"><div class="astra-loading-icon"></div></div>' + retry_str);
 
 			AstraSitesAdmin.action_slug = 'site-pages';
 			astraSitesVars.cpt_slug = 'site-pages';
@@ -3373,27 +3476,30 @@ var AstraSitesAjaxQueue = (function () {
 				AstraSitesAdmin._apiAddParam_site_url();
 				AstraSitesAdmin._apiAddParam_purchase_key();
 
-				// Request.
-				$.ajax({
-					url: astraSitesVars.ajaxurl,
-					type: 'POST',
-					data: {
-						action: 'astra-sites-api-request',
-						url: astraSitesVars.cpt_slug + '/' + page_id + '?' + decodeURIComponent($.param(AstraSitesAdmin._api_params)),
-					},
-					beforeSend: function () {
-						console.groupCollapsed('Requesting API URL');
-						AstraSitesAdmin._log('Requesting API URL');
-					}
-				})
+				setTimeout( function() {
+					// Request.
+					$.ajax({
+						url: astraSitesVars.ajaxurl,
+						type: 'POST',
+						data: {
+							action: 'astra-sites-api-request',
+							url: astraSitesVars.cpt_slug + '/' + page_id + '?' + decodeURIComponent($.param(AstraSitesAdmin._api_params)),
+						},
+						beforeSend: function () {
+							console.groupCollapsed('Requesting API URL');
+							AstraSitesAdmin._log('Requesting API URL');
+						}
+					})
 					.fail(function (jqXHR) {
 						AstraSitesAdmin._log(jqXHR);
-						AstraSitesAdmin._importFailMessage(jqXHR.status + ' ' + jqXHR.statusText, 'Page Import API Request Failed!', jqXHR);
+						AstraSitesAdmin._importFailMessage( jqXHR.status + ' ' + jqXHR.statusText, 'Page Import API Request Failed!', jqXHR, astraSitesVars.ajax_request_failed_primary, astraSitesVars.ajax_request_failed_secondary );
 						console.groupEnd();
+						AstraSitesAdmin.delay_in_request = false;
 					})
 					.done(function (response) {
 						AstraSitesAdmin._log(response);
 						console.groupEnd();
+						AstraSitesAdmin.delay_in_request = false;
 
 						if (response.success) {
 							AstraSitesAdmin.visited_sites_and_pages[response.data.id] = response.data;
@@ -3402,13 +3508,10 @@ var AstraSitesAjaxQueue = (function () {
 
 							AstraSitesAdmin.required_plugins_list_markup(AstraSitesAdmin.templateData['site-pages-required-plugins']);
 						} else {
-							$('.astra-sites-result-preview .heading > h3').text('Import Process Interrupted');
-							$('.astra-sites-import-content').find('.astra-loading-wrap').remove();
-							$('.astra-sites-result-preview').removeClass('preparing');
-							$('.astra-sites-import-content').html(wp.template('astra-sites-request-failed'));
-							$('.astra-demo-import').removeClass('updating-message installing button-primary').addClass('disabled').text('Import Failed!');
+							AstraSitesAdmin.handle_error( response, page_id );
 						}
 					});
+				}, delay );
 			}
 		},
 
@@ -3482,7 +3585,7 @@ var AstraSitesAjaxQueue = (function () {
 				data: {
 					action: 'astra-required-plugins',
 					_ajax_nonce: astraSitesVars._ajax_nonce,
-					required_plugins: requiredPlugins,
+					required_plugins: JSON.stringify(requiredPlugins),
 					options: AstraSitesAdmin.options_data,
 					enabledExtensions: AstraSitesAdmin.enabled_extensions,
 				},
@@ -3503,14 +3606,14 @@ var AstraSitesAjaxQueue = (function () {
 				.done(function (response) {
 					console.log('Required Plugin Status From The Site:');
 					AstraSitesAdmin._log(response);
-					console.groupEnd();	
-					if ( AstraSitesAdmin.subscribe_skiped || AstraSitesAdmin.subscription_form_submitted == 'yes') {
+					console.groupEnd();
+					if (AstraSitesAdmin.subscribe_skiped || AstraSitesAdmin.subscription_form_submitted == 'yes') {
 						$('.user-building-for-title').hide();
 						$('.astra-sites-advanced-options-heading').hide();
 						$('.astra-sites-advanced-options').show();
 						$('#astra-sites-subscription-form-one').hide();
 					}
-					if ( false === AstraSitesAdmin.subscribe_skiped && $('.subscription-enabled').length && AstraSitesAdmin.subscription_form_submitted !== 'yes') {
+					if (false === AstraSitesAdmin.subscribe_skiped && $('.subscription-enabled').length && AstraSitesAdmin.subscription_form_submitted !== 'yes') {
 						$('.astra-sites-result-preview .heading h3').html(astraSitesVars.headings.subscription);
 						$('.site-import-cancel').hide();
 
@@ -3645,7 +3748,7 @@ var AstraSitesAjaxQueue = (function () {
 				return;
 			}
 
-			if ( false === AstraSitesAdmin.subscribe_skiped && $('.subscription-enabled').length && AstraSitesAdmin.subscription_form_submitted !== 'yes') {
+			if (false === AstraSitesAdmin.subscribe_skiped && $('.subscription-enabled').length && AstraSitesAdmin.subscription_form_submitted !== 'yes') {
 				$('.subscription-popup').show();
 				$('.astra-sites-result-preview .default').hide();
 			} else {
